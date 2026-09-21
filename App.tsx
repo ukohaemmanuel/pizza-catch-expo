@@ -100,7 +100,7 @@ export default function App() {
       toValue: 1,
       friction: 5,
       tension: 140,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   }, [panScale]);
 
@@ -111,7 +111,7 @@ export default function App() {
       Animated.timing(floatOpacity, {
         toValue: 0,
         duration: 650,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }).start();
     },
     [floatOpacity]
@@ -192,10 +192,9 @@ export default function App() {
   const onPlayLayout = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     setPlaySize({ width, height });
-    if (panXRef.current === 0) {
-      panXRef.current = width / 2;
-      setPanX(width / 2);
-    }
+    const next = clampPanX(panXRef.current || width / 2, width);
+    panXRef.current = next;
+    setPanX(next);
   }, []);
 
   const movePan = useCallback((x: number) => {
@@ -293,7 +292,8 @@ export default function App() {
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
-      <View style={styles.hud}>
+      <View style={styles.phone}>
+        <View style={styles.hud}>
         <Text style={styles.hudTimer}>⏱ {formatTime(timeLeftMs)}</Text>
         <Text style={styles.hudScore}>{scoreState.score}</Text>
         <View style={styles.hudTypes}>
@@ -332,13 +332,13 @@ export default function App() {
         ) : null}
 
         <Animated.View
-          pointerEvents="none"
           style={[
             styles.pan,
             {
               width: panWidth,
               left: panX - panWidth / 2,
               transform: [{ scale: panScale }],
+              pointerEvents: 'none',
             },
           ]}
         >
@@ -347,12 +347,12 @@ export default function App() {
 
         {floatLabel ? (
           <Animated.Text
-            pointerEvents="none"
             style={[
               styles.floatLabel,
               {
                 left: panX - 70,
                 opacity: floatOpacity,
+                pointerEvents: 'none',
               },
             ]}
           >
@@ -362,7 +362,7 @@ export default function App() {
       </View>
 
       {phase === 'flash' ? (
-        <View style={styles.flash} pointerEvents="none">
+        <View style={[styles.flash, { pointerEvents: 'none' }]}>
           <Text style={styles.flashTitle}>Make a Pizza</Text>
           <Text style={styles.flashEmojis}>
             {ITEMS.dough.emoji} {ITEMS.sauce.emoji} {ITEMS.cheese.emoji}
@@ -385,6 +385,7 @@ export default function App() {
           </View>
         </View>
       ) : null}
+      </View>
     </View>
   );
 }
@@ -392,8 +393,16 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: '#E8D3A8',
+    alignItems: 'center',
+  },
+  phone: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 430,
     backgroundColor: KITCHEN,
     paddingTop: Platform.OS === 'web' ? 24 : 48,
+    position: 'relative',
   },
   hud: {
     paddingHorizontal: 20,

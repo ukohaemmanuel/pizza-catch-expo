@@ -294,97 +294,97 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.phone}>
         <View style={styles.hud}>
-        <Text style={styles.hudTimer}>⏱ {formatTime(timeLeftMs)}</Text>
-        <Text style={styles.hudScore}>{scoreState.score}</Text>
-        <View style={styles.hudTypes}>
-          {MUST_HAVE_IDS.map((id: MustHaveId) => (
+          <Text style={styles.hudTimer}>⏱ {formatTime(timeLeftMs)}</Text>
+          <Text style={styles.hudScore}>{scoreState.score}</Text>
+          <View style={styles.hudTypes}>
+            {MUST_HAVE_IDS.map((id: MustHaveId) => (
+              <Text
+                key={id}
+                style={[
+                  styles.hudEmoji,
+                  scoreState.mustHaveCounts[id] <= 0 && styles.hudEmojiDim,
+                ]}
+              >
+                {ITEMS[id].emoji}
+              </Text>
+            ))}
+            {junkCaught > 0 ? <Text style={styles.hudJunk}>⚠</Text> : null}
+          </View>
+        </View>
+
+        <View
+          style={styles.play}
+          onLayout={onPlayLayout}
+          {...panResponder.panHandlers}
+        >
+          {item && itemDef ? (
             <Text
-              key={id}
               style={[
-                styles.hudEmoji,
-                scoreState.mustHaveCounts[id] <= 0 && styles.hudEmojiDim,
+                styles.item,
+                {
+                  left: item.x - ITEM_SIZE / 2,
+                  top: item.y - ITEM_SIZE / 2,
+                },
               ]}
             >
-              {ITEMS[id].emoji}
+              {itemDef.emoji}
             </Text>
-          ))}
-          {junkCaught > 0 ? <Text style={styles.hudJunk}>⚠</Text> : null}
-        </View>
-      </View>
+          ) : null}
 
-      <View
-        style={styles.play}
-        onLayout={onPlayLayout}
-        {...panResponder.panHandlers}
-      >
-        {item && itemDef ? (
-          <Text
+          <Animated.View
             style={[
-              styles.item,
+              styles.pan,
               {
-                left: item.x - ITEM_SIZE / 2,
-                top: item.y - ITEM_SIZE / 2,
-              },
-            ]}
-          >
-            {itemDef.emoji}
-          </Text>
-        ) : null}
-
-        <Animated.View
-          style={[
-            styles.pan,
-            {
-              width: panWidth,
-              left: panX - panWidth / 2,
-              transform: [{ scale: panScale }],
-              pointerEvents: 'none',
-            },
-          ]}
-        >
-          <Text style={styles.panEmoji}>🍳</Text>
-        </Animated.View>
-
-        {floatLabel ? (
-          <Animated.Text
-            style={[
-              styles.floatLabel,
-              {
-                left: panX - 70,
-                opacity: floatOpacity,
+                width: panWidth,
+                left: panX - panWidth / 2,
+                transform: [{ scale: panScale }],
                 pointerEvents: 'none',
               },
             ]}
           >
-            {floatLabel}
-          </Animated.Text>
-        ) : null}
-      </View>
+            <Text style={styles.panEmoji}>🍳</Text>
+          </Animated.View>
 
-      {phase === 'flash' ? (
-        <View style={[styles.flash, { pointerEvents: 'none' }]}>
-          <Text style={styles.flashTitle}>Make a Pizza</Text>
-          <Text style={styles.flashEmojis}>
-            {ITEMS.dough.emoji} {ITEMS.sauce.emoji} {ITEMS.cheese.emoji}
-          </Text>
-        </View>
-      ) : null}
-
-      {phase === 'graded' && report ? (
-        <View style={styles.modalWrap}>
-          <View style={styles.modal}>
-            <Text style={styles.grade}>{report.grade}</Text>
-            <Text style={styles.summary}>{report.summary}</Text>
-            <Text style={styles.finalScore}>Score {report.score}</Text>
-            <Pressable
-              onPress={restart}
-              style={({ pressed }) => [styles.replay, pressed && styles.replayPressed]}
+          {floatLabel ? (
+            <Animated.Text
+              style={[
+                styles.floatLabel,
+                {
+                  left: panX - 70,
+                  opacity: floatOpacity,
+                  pointerEvents: 'none',
+                },
+              ]}
             >
-              <Text style={styles.replayLabel}>Replay</Text>
-            </Pressable>
-          </View>
+              {floatLabel}
+            </Animated.Text>
+          ) : null}
         </View>
-      ) : null}
+
+        {phase === 'flash' ? (
+          <View style={[styles.flash, { pointerEvents: 'none' }]}>
+            <Text style={styles.flashTitle}>Make a Pizza</Text>
+            <Text style={styles.flashEmojis}>
+              {ITEMS.dough.emoji} {ITEMS.sauce.emoji} {ITEMS.cheese.emoji}
+            </Text>
+          </View>
+        ) : null}
+
+        {phase === 'graded' && report ? (
+          <View style={styles.modalWrap}>
+            <View style={styles.modal}>
+              <Text style={styles.grade}>{report.grade}</Text>
+              <Text style={styles.summary}>{report.summary}</Text>
+              <Text style={styles.finalScore}>Score {report.score}</Text>
+              <Pressable
+                onPress={restart}
+                style={({ pressed }) => [styles.replay, pressed && styles.replayPressed]}
+              >
+                <Text style={styles.replayLabel}>Replay</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
       </View>
     </View>
   );

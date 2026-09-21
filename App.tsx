@@ -82,6 +82,9 @@ export default function App() {
   const roundIdRef = useRef(0);
   const panScale = useRef(new Animated.Value(1)).current;
   const floatOpacity = useRef(new Animated.Value(0)).current;
+  const endRoundRef = useRef<() => void>(() => {});
+  const spawnItemRef = useRef<() => void>(() => {});
+  const resolveItemRef = useRef<(caught: boolean) => void>(() => {});
 
   playSizeRef.current = playSize;
   scoreRef.current = scoreState;
@@ -169,6 +172,10 @@ export default function App() {
     [popPan, showFloat]
   );
 
+  endRoundRef.current = endRound;
+  spawnItemRef.current = spawnItem;
+  resolveItemRef.current = resolveItem;
+
   const restart = useCallback(() => {
     const { width } = playSizeRef.current;
     const reset = createScoreState();
@@ -176,13 +183,17 @@ export default function App() {
     itemRef.current = null;
     elapsedRef.current = 0;
     spawnAtRef.current = Number.POSITIVE_INFINITY;
-    panXRef.current = width / 2;
+    panXRef.current = width > 0 ? width / 2 : panXRef.current;
     setScoreState(reset);
     setItem(null);
     setReport(null);
     setFloatLabel(null);
     setTimeLeftMs(ROUND_DURATION_MS);
-    setPanX(width / 2);
+    if (width > 0) {
+      setPanX(width / 2);
+    }
+    floatOpacity.stopAnimation();
+    panScale.stopAnimation();
     floatOpacity.setValue(0);
     panScale.setValue(1);
     setRoundId((id) => id + 1);
@@ -191,7 +202,12 @@ export default function App() {
 
   const onPlayLayout = useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
-    setPlaySize({ width, height });
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    setPlaySize((prev) =>
+      prev.width === width && prev.height === height ? prev : { width, height }
+    );
     const next = clampPanX(panXRef.current || width / 2, width);
     panXRef.current = next;
     setPanX(next);
@@ -236,30 +252,33 @@ export default function App() {
     }
 
     let frame = 0;
+    let running = true;
     let last = performance.now();
+    const startedAt = last;
+    elapsedRef.current = 0;
 
     const tick = (now: number) => {
-      if (phaseRef.current !== 'playing' || roundIdRef.current !== roundId) {
+      if (!running || phaseRef.current !== 'playing' || roundIdRef.current !== roundId) {
         return;
       }
-      const dt = Math.min(0.05, (now - last) / 1000);
+      const elapsed = now - startedAt;
+      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
       last = now;
-      elapsedRef.current += dt * 1000;
-      const remaining = ROUND_DURATION_MS - elapsedRef.current;
-      setTimeLeftMs(remaining);
+      elapsedRef.current = elapsed;
+      setTimeLeftMs(ROUND_DURATION_MS - elapsed);
 
-      if (remaining <= 0) {
-        endRound();
+      if (elapsed >= ROUND_DURATION_MS) {
+        endRoundRef.current();
         return;
       }
 
-      if (!itemRef.current && elapsedRef.current >= spawnAtRef.current) {
-        spawnItem();
+      if (!itemRef.current && elapsed >= spawnAtRef.current) {
+        spawnItemRef.current();
       }
 
       const falling = itemRef.current;
       if (falling) {
-        const speed = elapsedRef.current < SLOW_FALL_MS ? SLOW_FALL_SPEED : STEADY_FALL_SPEED;
+        const speed = elapsed < SLOW_FALL_MS ? SLOW_FALL_SPEED : STEADY_FALL_SPEED;
         const next = { ...falling, y: falling.y + speed * dt };
         if (
           itemHitsPan(
@@ -270,9 +289,9 @@ export default function App() {
             PAN_BOTTOM_OFFSET
           )
         ) {
-          resolveItem(true);
+          resolveItemRef.current(true);
         } else if (itemHitsFloor(next.y, playSizeRef.current.height)) {
-          resolveItem(false);
+          resolveItemRef.current(false);
         } else {
           itemRef.current = next;
           setItem(next);
@@ -283,8 +302,11 @@ export default function App() {
     };
 
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [endRound, phase, playSize.width, resolveItem, roundId, spawnItem]);
+    return () => {
+      running = false;
+      cancelAnimationFrame(frame);
+    };
+  }, [phase, playSize.width, roundId]);
 
   const itemDef = item ? ITEMS[item.itemId] : null;
   const junkCaught = junkTotal(scoreState);
@@ -402,6 +424,7 @@ const styles = StyleSheet.create({
     maxWidth: 430,
     backgroundColor: KITCHEN,
     paddingTop: Platform.OS === 'web' ? 24 : 48,
+    paddingBottom: Platform.OS === 'web' ? 28 : 12,
     position: 'relative',
   },
   hud: {

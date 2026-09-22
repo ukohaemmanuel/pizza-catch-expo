@@ -8,403 +8,388 @@ import {
   StyleSheet,
   Text,
   View,
-  type LayoutChangeEvent,
+  type GestureResponderEvent,
+  type PanResponderGestureState,
 } from 'react-native';
 
 import {
-  FLASH_DURATION_MS,
-  ITEM_SIZE,
-  PAN_HEIGHT,
+  RAIL_FEED_MS,
+  RAIL_MAX_QUEUE,
+  RECIPE_DURATION_MS,
   ROUND_DURATION_MS,
-  SLOW_FALL_MS,
-  SLOW_FALL_SPEED,
-  SPAWN_INTERVAL_MS,
-  STEADY_FALL_SPEED,
+  TOKEN_SIZE,
 } from './src/game/constants';
+import { ITEMS, MUST_HAVE_IDS, type ItemId, type MustHaveId } from './src/game/items';
+import { dropIsOnPlate, swipeIsReject, type Circle } from './src/game/plate';
 import {
-  clampPanX,
-  itemHitsFloor,
-  itemHitsPan,
-  panWidthFor,
-  randomItemX,
-  type FallingItem,
-} from './src/game/collision';
-import { ITEMS, MUST_HAVE_IDS, type MustHaveId } from './src/game/items';
-import {
-  applyCatch,
+  applyAccept,
+  applyReject,
   applyTimeUp,
-  computeGrade,
+  chefLine,
+  computePlatingLabel,
   createScoreState,
   formatSummary,
   junkTotal,
-  type Grade,
+  type PlatingLabel,
   type ScoreState,
 } from './src/game/scoring';
 import { pickSpawnItem } from './src/game/spawn';
 
-type Phase = 'flash' | 'playing' | 'graded';
+type Phase = 'recipe' | 'plating' | 'graded';
 
-const PAN_BOTTOM_OFFSET = 18;
-const KITCHEN = '#F3E1C1';
-const CREAM = '#F8EDD8';
-const WOOD = '#C9A06A';
-const INK = '#4A3424';
-
-type GradeReport = {
-  grade: Grade;
-  score: number;
-  summary: string;
+type RailToken = {
+  key: number;
+  itemId: ItemId;
 };
 
-function formatTime(ms: number): string {
-  return String(Math.max(0, Math.ceil(ms / 1000)));
+type DeskReport = {
+  label: PlatingLabel;
+  score: number;
+  summary: string;
+  line: string;
+};
+
+const WOOD = '#E7D3B0';
+const WOOD_DEEP = '#D7C09A';
+const CREAM = '#F7EBDA';
+const INK = '#4A3424';
+const INK_SOFT = '#7A624C';
+const PLATE = '#FFFEFB';
+const PLATE_RIM = '#E4DDD0';
+const RAIL = '#C9A574';
+const EMBER = '#D98A3A';
+
+function slotOffset(id: MustHaveId): { x: number; y: number } {
+  if (id === 'dough') {
+    return { x: 0, y: 34 };
+  }
+  if (id === 'sauce') {
+    return { x: 0, y: 2 };
+  }
+  return { x: 0, y: -30 };
 }
 
 export default function App() {
-  const [phase, setPhase] = useState<Phase>('flash');
-  const [playSize, setPlaySize] = useState({ width: 0, height: 0 });
-  const [panX, setPanX] = useState(0);
-  const [item, setItem] = useState<FallingItem | null>(null);
+  const [phase, setPhase] = useState<Phase>('recipe');
   const [scoreState, setScoreState] = useState<ScoreState>(createScoreState);
+  const [queue, setQueue] = useState<RailToken[]>([]);
   const [timeLeftMs, setTimeLeftMs] = useState(ROUND_DURATION_MS);
-  const [floatLabel, setFloatLabel] = useState<string | null>(null);
-  const [report, setReport] = useState<GradeReport | null>(null);
+  const [report, setReport] = useState<DeskReport | null>(null);
   const [roundId, setRoundId] = useState(0);
+  const [drag, setDrag] = useState({ x: 0, y: 0, active: false });
+  const [plateLayout, setPlateLayout] = useState<Circle>({ cx: 0, cy: 0, r: 0 });
 
-  const phaseRef = useRef<Phase>('flash');
-  const playSizeRef = useRef(playSize);
-  const panXRef = useRef(0);
-  const itemRef = useRef<FallingItem | null>(null);
+  const phaseRef = useRef<Phase>('recipe');
   const scoreRef = useRef(scoreState);
-  const elapsedRef = useRef(0);
-  const spawnAtRef = useRef(Number.POSITIVE_INFINITY);
-  const nextItemKey = useRef(1);
+  const queueRef = useRef<RailToken[]>([]);
   const roundIdRef = useRef(0);
-  const panScale = useRef(new Animated.Value(1)).current;
-  const floatOpacity = useRef(new Animated.Value(0)).current;
-  const endRoundRef = useRef<() => void>(() => {});
-  const spawnItemRef = useRef<() => void>(() => {});
-  const resolveItemRef = useRef<(caught: boolean) => void>(() => {});
+  const plateRef = useRef<Circle>(plateLayout);
+  const nextKey = useRef(1);
+  const dragStart = useRef({ pageX: 0, pageY: 0, cx: 0, cy: 0 });
+  const plateViewRef = useRef<View>(null);
+  const recipeOpacity = useRef(new Animated.Value(1)).current;
 
-  playSizeRef.current = playSize;
   scoreRef.current = scoreState;
+  queueRef.current = queue;
   roundIdRef.current = roundId;
-
-  const panWidth = panWidthFor(playSize.width || 1);
+  plateRef.current = plateLayout;
 
   const setPhaseSafe = useCallback((next: Phase) => {
     phaseRef.current = next;
     setPhase(next);
   }, []);
 
-  const popPan = useCallback(() => {
-    panScale.setValue(1.18);
-    Animated.spring(panScale, {
-      toValue: 1,
-      friction: 5,
-      tension: 140,
-      useNativeDriver: false,
-    }).start();
-  }, [panScale]);
+  const feedOne = useCallback(() => {
+    if (phaseRef.current !== 'plating') {
+      return;
+    }
+    setQueue((prev) => {
+      if (prev.length >= RAIL_MAX_QUEUE) {
+        return prev;
+      }
+      const token: RailToken = {
+        key: nextKey.current,
+        itemId: pickSpawnItem(scoreRef.current.mustHaveCounts),
+      };
+      nextKey.current += 1;
+      return [...prev, token];
+    });
+  }, []);
 
-  const showFloat = useCallback(
-    (label: string) => {
-      setFloatLabel(label);
-      floatOpacity.setValue(1);
-      Animated.timing(floatOpacity, {
-        toValue: 0,
-        duration: 650,
-        useNativeDriver: false,
-      }).start();
-    },
-    [floatOpacity]
-  );
+  const resolveActive = useCallback((mode: 'accept' | 'reject') => {
+    const current = queueRef.current[0];
+    setDrag({ x: 0, y: 0, active: false });
+    if (!current || phaseRef.current !== 'plating') {
+      return;
+    }
+    if (mode === 'accept') {
+      const result = applyAccept(scoreRef.current, current.itemId);
+      scoreRef.current = result.state;
+      setScoreState(result.state);
+    } else {
+      scoreRef.current = applyReject(scoreRef.current, current.itemId);
+    }
+    setQueue((prev) => prev.slice(1));
+  }, []);
 
   const endRound = useCallback(() => {
-    if (phaseRef.current !== 'playing') {
+    if (phaseRef.current !== 'plating') {
       return;
     }
     const ended = applyTimeUp(scoreRef.current);
     scoreRef.current = ended.state;
     setScoreState(ended.state);
+    setDrag({ x: 0, y: 0, active: false });
     setPhaseSafe('graded');
     setReport({
-      grade: computeGrade(ended.state),
+      label: computePlatingLabel(ended.state),
       score: ended.state.score,
       summary: formatSummary(ended.state),
+      line: chefLine(ended.state),
     });
   }, [setPhaseSafe]);
 
-  const spawnItem = useCallback(() => {
-    const { width } = playSizeRef.current;
-    if (width <= 0 || phaseRef.current !== 'playing') {
-      return;
-    }
-    const falling: FallingItem = {
-      key: nextItemKey.current,
-      itemId: pickSpawnItem(scoreRef.current.mustHaveCounts),
-      x: randomItemX(width),
-      y: -ITEM_SIZE / 2,
-    };
-    nextItemKey.current += 1;
-    itemRef.current = falling;
-    setItem(falling);
-    spawnAtRef.current = Number.POSITIVE_INFINITY;
-  }, []);
-
-  const resolveItem = useCallback(
-    (caught: boolean) => {
-      const current = itemRef.current;
-      itemRef.current = null;
-      setItem(null);
-      if (!current || phaseRef.current !== 'playing') {
-        return;
-      }
-      if (caught) {
-        const result = applyCatch(scoreRef.current, current.itemId);
-        scoreRef.current = result.state;
-        setScoreState(result.state);
-        popPan();
-        showFloat(result.label);
-      }
-      spawnAtRef.current = elapsedRef.current + SPAWN_INTERVAL_MS;
-    },
-    [popPan, showFloat]
-  );
-
-  endRoundRef.current = endRound;
-  spawnItemRef.current = spawnItem;
-  resolveItemRef.current = resolveItem;
-
   const restart = useCallback(() => {
-    const { width } = playSizeRef.current;
     const reset = createScoreState();
     scoreRef.current = reset;
-    itemRef.current = null;
-    elapsedRef.current = 0;
-    spawnAtRef.current = Number.POSITIVE_INFINITY;
-    panXRef.current = width > 0 ? width / 2 : panXRef.current;
     setScoreState(reset);
-    setItem(null);
+    setQueue([]);
     setReport(null);
-    setFloatLabel(null);
     setTimeLeftMs(ROUND_DURATION_MS);
-    if (width > 0) {
-      setPanX(width / 2);
-    }
-    floatOpacity.stopAnimation();
-    panScale.stopAnimation();
-    floatOpacity.setValue(0);
-    panScale.setValue(1);
+    setDrag({ x: 0, y: 0, active: false });
+    recipeOpacity.setValue(1);
     setRoundId((id) => id + 1);
-    setPhaseSafe('flash');
-  }, [floatOpacity, panScale, setPhaseSafe]);
+    setPhaseSafe('recipe');
+  }, [recipeOpacity, setPhaseSafe]);
 
-  const onPlayLayout = useCallback((event: LayoutChangeEvent) => {
-    const { width, height } = event.nativeEvent.layout;
-    if (width <= 0 || height <= 0) {
-      return;
-    }
-    setPlaySize((prev) =>
-      prev.width === width && prev.height === height ? prev : { width, height }
-    );
-    const next = clampPanX(panXRef.current || width / 2, width);
-    panXRef.current = next;
-    setPanX(next);
-  }, []);
-
-  const movePan = useCallback((x: number) => {
-    if (phaseRef.current !== 'playing') {
-      return;
-    }
-    const next = clampPanX(x, playSizeRef.current.width);
-    panXRef.current = next;
-    setPanX(next);
+  const onPlateLayout = useCallback(() => {
+    plateViewRef.current?.measureInWindow((x, y, w, h) => {
+      const circle = { cx: x + w / 2, cy: y + h / 2, r: Math.min(w, h) / 2 };
+      plateRef.current = circle;
+      setPlateLayout(circle);
+    });
   }, []);
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => phaseRef.current === 'playing',
-        onMoveShouldSetPanResponder: () => phaseRef.current === 'playing',
-        onPanResponderGrant: (event) => movePan(event.nativeEvent.locationX),
-        onPanResponderMove: (event) => movePan(event.nativeEvent.locationX),
+        onStartShouldSetPanResponder: () =>
+          phaseRef.current === 'plating' && queueRef.current.length > 0,
+        onMoveShouldSetPanResponder: () =>
+          phaseRef.current === 'plating' && queueRef.current.length > 0,
+        onPanResponderGrant: (event: GestureResponderEvent) => {
+          const { pageX, pageY } = event.nativeEvent;
+          dragStart.current = { pageX, pageY, cx: pageX, cy: pageY };
+          setDrag({ x: 0, y: 0, active: true });
+        },
+        onPanResponderMove: (event: GestureResponderEvent) => {
+          const { pageX, pageY } = event.nativeEvent;
+          setDrag({
+            x: pageX - dragStart.current.pageX,
+            y: pageY - dragStart.current.pageY,
+            active: true,
+          });
+        },
+        onPanResponderRelease: (
+          event: GestureResponderEvent,
+          gesture: PanResponderGestureState
+        ) => {
+          const { pageX, pageY } = event.nativeEvent;
+          const overPlate = dropIsOnPlate(pageX, pageY, plateRef.current);
+          if (overPlate) {
+            resolveActive('accept');
+            return;
+          }
+          if (swipeIsReject(gesture.vx, gesture.vy, overPlate)) {
+            resolveActive('reject');
+            return;
+          }
+          setDrag({ x: 0, y: 0, active: false });
+        },
+        onPanResponderTerminate: () => {
+          setDrag({ x: 0, y: 0, active: false });
+        },
       }),
-    [movePan]
+    [resolveActive]
   );
 
   useEffect(() => {
-    if (phase !== 'flash') {
+    if (phase !== 'recipe') {
       return;
     }
-    const timer = setTimeout(() => {
-      elapsedRef.current = 0;
-      spawnAtRef.current = SPAWN_INTERVAL_MS;
-      setTimeLeftMs(ROUND_DURATION_MS);
-      setPhaseSafe('playing');
-    }, FLASH_DURATION_MS);
-    return () => clearTimeout(timer);
-  }, [phase, roundId, setPhaseSafe]);
+    recipeOpacity.setValue(1);
+    const fade = setTimeout(() => {
+      Animated.timing(recipeOpacity, {
+        toValue: 0,
+        duration: 280,
+        useNativeDriver: false,
+      }).start(({ finished }) => {
+        if (finished && roundIdRef.current === roundId) {
+          setPhaseSafe('plating');
+        }
+      });
+    }, RECIPE_DURATION_MS - 280);
+    return () => clearTimeout(fade);
+  }, [phase, recipeOpacity, roundId, setPhaseSafe]);
 
   useEffect(() => {
-    if (phase !== 'playing' || playSize.width <= 0) {
+    if (phase !== 'plating') {
       return;
     }
+    feedOne();
+    const feed = setInterval(feedOne, RAIL_FEED_MS);
+    return () => clearInterval(feed);
+  }, [feedOne, phase, roundId]);
 
+  useEffect(() => {
+    if (phase !== 'plating') {
+      return;
+    }
     let frame = 0;
     let running = true;
-    let last = performance.now();
-    const startedAt = last;
-    elapsedRef.current = 0;
+    const startedAt = performance.now();
 
     const tick = (now: number) => {
-      if (!running || phaseRef.current !== 'playing' || roundIdRef.current !== roundId) {
+      if (!running || phaseRef.current !== 'plating' || roundIdRef.current !== roundId) {
         return;
       }
-      const elapsed = now - startedAt;
-      const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
-      last = now;
-      elapsedRef.current = elapsed;
-      setTimeLeftMs(ROUND_DURATION_MS - elapsed);
-
-      if (elapsed >= ROUND_DURATION_MS) {
-        endRoundRef.current();
+      const remaining = ROUND_DURATION_MS - (now - startedAt);
+      setTimeLeftMs(remaining);
+      if (remaining <= 0) {
+        endRound();
         return;
       }
-
-      if (!itemRef.current && elapsed >= spawnAtRef.current) {
-        spawnItemRef.current();
-      }
-
-      const falling = itemRef.current;
-      if (falling) {
-        const speed = elapsed < SLOW_FALL_MS ? SLOW_FALL_SPEED : STEADY_FALL_SPEED;
-        const next = { ...falling, y: falling.y + speed * dt };
-        if (
-          itemHitsPan(
-            next,
-            panXRef.current,
-            playSizeRef.current.width,
-            playSizeRef.current.height,
-            PAN_BOTTOM_OFFSET
-          )
-        ) {
-          resolveItemRef.current(true);
-        } else if (itemHitsFloor(next.y, playSizeRef.current.height)) {
-          resolveItemRef.current(false);
-        } else {
-          itemRef.current = next;
-          setItem(next);
-        }
-      }
-
       frame = requestAnimationFrame(tick);
     };
-
     frame = requestAnimationFrame(tick);
     return () => {
       running = false;
       cancelAnimationFrame(frame);
     };
-  }, [phase, playSize.width, roundId]);
+  }, [endRound, phase, roundId]);
 
-  const itemDef = item ? ITEMS[item.itemId] : null;
-  const junkCaught = junkTotal(scoreState);
+  const oven = Math.max(0, Math.min(1, timeLeftMs / ROUND_DURATION_MS));
+  const active = queue[0] ?? null;
+  const waiting = queue.slice(1);
+  const contaminated = junkTotal(scoreState) > 0;
 
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
-      <View style={styles.phone}>
-        <View style={styles.hud}>
-          <Text style={styles.hudTimer}>⏱ {formatTime(timeLeftMs)}</Text>
-          <Text style={styles.hudScore}>{scoreState.score}</Text>
-          <View style={styles.hudTypes}>
-            {MUST_HAVE_IDS.map((id: MustHaveId) => (
-              <Text
-                key={id}
-                style={[
-                  styles.hudEmoji,
-                  scoreState.mustHaveCounts[id] <= 0 && styles.hudEmojiDim,
-                ]}
-              >
-                {ITEMS[id].emoji}
-              </Text>
-            ))}
-            {junkCaught > 0 ? <Text style={styles.hudJunk}>⚠</Text> : null}
+      <View style={styles.desk}>
+        <View style={styles.grain} pointerEvents="none" />
+        <View style={styles.header}>
+          <Text style={styles.dish}>Pizza</Text>
+          <View style={styles.ovenWell}>
+            <View style={[styles.ovenFill, { width: 72 * oven }]} />
           </View>
         </View>
 
-        <View
-          style={styles.play}
-          onLayout={onPlayLayout}
-          {...panResponder.panHandlers}
-        >
-          {item && itemDef ? (
-            <Text
-              style={[
-                styles.item,
-                {
-                  left: item.x - ITEM_SIZE / 2,
-                  top: item.y - ITEM_SIZE / 2,
-                },
-              ]}
-            >
-              {itemDef.emoji}
-            </Text>
-          ) : null}
-
-          <Animated.View
-            style={[
-              styles.pan,
-              {
-                width: panWidth,
-                left: panX - panWidth / 2,
-                transform: [{ scale: panScale }],
-                pointerEvents: 'none',
-              },
-            ]}
-          >
-            <Text style={styles.panEmoji}>🍳</Text>
-          </Animated.View>
-
-          {floatLabel ? (
-            <Animated.Text
-              style={[
-                styles.floatLabel,
-                {
-                  left: panX - 70,
-                  opacity: floatOpacity,
-                  pointerEvents: 'none',
-                },
-              ]}
-            >
-              {floatLabel}
-            </Animated.Text>
-          ) : null}
+        <View style={styles.board}>
+          <View style={styles.plateShadow} />
+          <View ref={plateViewRef} style={styles.plate} onLayout={onPlateLayout}>
+            {contaminated ? <View style={styles.stain} /> : null}
+            {MUST_HAVE_IDS.map((id) => {
+              const filled = scoreState.mustHaveCounts[id] > 0;
+              const pos = slotOffset(id);
+              return (
+                <View
+                  key={id}
+                  style={[
+                    styles.slot,
+                    {
+                      transform: [{ translateX: pos.x }, { translateY: pos.y }],
+                      opacity: filled ? 1 : 0.22,
+                    },
+                  ]}
+                >
+                  <Text style={styles.slotEmoji}>{ITEMS[id].emoji}</Text>
+                  {scoreState.mustHaveCounts[id] > 1 ? (
+                    <Text style={styles.extraMark}>+</Text>
+                  ) : null}
+                </View>
+              );
+            })}
+            {scoreState.junkCounts.banana > 0 ? (
+              <Text style={[styles.junkMark, { transform: [{ translateX: 36 }, { translateY: 18 }] }]}>
+                🍌
+              </Text>
+            ) : null}
+            {scoreState.junkCounts.iceCream > 0 ? (
+              <Text style={[styles.junkMark, { transform: [{ translateX: -34 }, { translateY: -8 }] }]}>
+                🍦
+              </Text>
+            ) : null}
+          </View>
         </View>
 
-        {phase === 'flash' ? (
-          <View style={[styles.flash, { pointerEvents: 'none' }]}>
-            <Text style={styles.flashTitle}>Make a Pizza</Text>
-            <Text style={styles.flashEmojis}>
-              {ITEMS.dough.emoji} {ITEMS.sauce.emoji} {ITEMS.cheese.emoji}
-            </Text>
+        {phase !== 'graded' ? (
+          <View style={styles.rail}>
+            <Text style={styles.railLabel}>mise</Text>
+            <View style={styles.railTrack}>
+              {active ? (
+                <View
+                  style={[
+                    styles.token,
+                    drag.active && {
+                      transform: [{ translateX: drag.x }, { translateY: drag.y }],
+                      zIndex: 4,
+                      elevation: 4,
+                    },
+                  ]}
+                  {...panResponder.panHandlers}
+                >
+                  <Text style={styles.tokenEmoji}>{ITEMS[active.itemId].emoji}</Text>
+                </View>
+              ) : (
+                <View style={styles.tokenGhost} />
+              )}
+              {waiting.map((token) => (
+                <View key={token.key} style={[styles.token, styles.tokenWaiting]}>
+                  <Text style={styles.tokenEmoji}>{ITEMS[token.itemId].emoji}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
 
-        {phase === 'graded' && report ? (
-          <View style={styles.modalWrap}>
-            <View style={styles.modal}>
-              <Text style={styles.grade}>{report.grade}</Text>
-              <Text style={styles.summary}>{report.summary}</Text>
-              <Text style={styles.finalScore}>Score {report.score}</Text>
-              <Pressable
-                onPress={restart}
-                style={({ pressed }) => [styles.replay, pressed && styles.replayPressed]}
-              >
-                <Text style={styles.replayLabel}>Replay</Text>
-              </Pressable>
+        {phase === 'recipe' ? (
+          <Animated.View
+            pointerEvents="auto"
+            style={[styles.recipe, { opacity: recipeOpacity }]}
+          >
+            <Text style={styles.recipeKicker}>On the pass</Text>
+            <View style={styles.recipePlate}>
+              {MUST_HAVE_IDS.map((id) => {
+                const pos = slotOffset(id);
+                return (
+                  <View
+                    key={id}
+                    style={[
+                      styles.recipeSlot,
+                      { transform: [{ translateX: pos.x * 1.15 }, { translateY: pos.y * 1.15 }] },
+                    ]}
+                  >
+                    <Text style={styles.recipeEmoji}>{ITEMS[id].emoji}</Text>
+                  </View>
+                );
+              })}
             </View>
+            <Text style={styles.recipeHint}>Pizza</Text>
+          </Animated.View>
+        ) : null}
+
+        {phase === 'graded' && report ? (
+          <View style={styles.finish} pointerEvents="box-none">
+            <Text style={styles.finishLabel}>{report.label}</Text>
+            <Text style={styles.chef}>{report.line}</Text>
+            <Text style={styles.finishSummary}>{report.summary}</Text>
+            <Pressable
+              onPress={restart}
+              style={({ pressed }) => [styles.replay, pressed && styles.replayPressed]}
+            >
+              <Text style={styles.replayLabel}>Replay</Text>
+            </Pressable>
           </View>
         ) : null}
       </View>
@@ -415,159 +400,236 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#E8D3A8',
+    backgroundColor: WOOD_DEEP,
     alignItems: 'center',
   },
-  phone: {
+  desk: {
     flex: 1,
     width: '100%',
     maxWidth: 430,
-    backgroundColor: KITCHEN,
-    paddingTop: Platform.OS === 'web' ? 24 : 48,
-    paddingBottom: Platform.OS === 'web' ? 28 : 12,
-    position: 'relative',
+    backgroundColor: WOOD,
+    paddingTop: Platform.OS === 'web' ? 28 : 56,
+    paddingBottom: 16,
   },
-  hud: {
-    paddingHorizontal: 20,
-    paddingBottom: 8,
+  grain: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'transparent',
+    borderBottomWidth: 0,
+    opacity: 0.08,
+  },
+  header: {
+    paddingHorizontal: 28,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  hudTimer: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: INK,
-    width: 88,
+  dish: {
+    fontSize: 15,
+    letterSpacing: 6,
+    textTransform: 'uppercase',
+    color: INK_SOFT,
+    fontWeight: '500',
   },
-  hudScore: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: INK,
-  },
-  hudTypes: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: 88,
-    justifyContent: 'flex-end',
-    gap: 4,
-  },
-  hudEmoji: {
-    fontSize: 22,
-  },
-  hudEmojiDim: {
-    opacity: 0.28,
-  },
-  hudJunk: {
-    fontSize: 18,
-    marginLeft: 4,
-  },
-  play: {
-    flex: 1,
-    marginHorizontal: 12,
-    marginBottom: 12,
-    backgroundColor: CREAM,
-    borderRadius: 24,
-    borderWidth: 2,
-    borderColor: WOOD,
+  ovenWell: {
+    width: 72,
+    height: 7,
+    borderRadius: 99,
+    backgroundColor: 'rgba(90, 50, 20, 0.12)',
     overflow: 'hidden',
   },
-  item: {
-    position: 'absolute',
-    width: ITEM_SIZE,
-    height: ITEM_SIZE,
-    fontSize: 40,
-    textAlign: 'center',
-    lineHeight: ITEM_SIZE,
+  ovenFill: {
+    height: '100%',
+    borderRadius: 99,
+    backgroundColor: EMBER,
+    opacity: 0.72,
   },
-  pan: {
+  board: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plateShadow: {
     position: 'absolute',
-    bottom: PAN_BOTTOM_OFFSET,
-    height: PAN_HEIGHT,
+    width: 236,
+    height: 28,
+    borderRadius: 99,
+    backgroundColor: 'rgba(74, 52, 36, 0.22)',
+    transform: [{ translateY: 108 }],
+  },
+  plate: {
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: PLATE,
+    borderWidth: 1.5,
+    borderColor: PLATE_RIM,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stain: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 110,
+    backgroundColor: 'rgba(176, 122, 48, 0.22)',
+  },
+  slot: {
+    position: 'absolute',
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  slotEmoji: {
+    fontSize: 32,
+  },
+  extraMark: {
+    position: 'absolute',
+    right: 0,
+    top: 2,
+    fontSize: 12,
+    color: INK_SOFT,
+  },
+  junkMark: {
+    position: 'absolute',
+    fontSize: 26,
+    opacity: 0.9,
+  },
+  rail: {
+    marginHorizontal: 18,
+    marginBottom: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: RAIL,
     borderRadius: 18,
-    backgroundColor: '#E8C992',
-    borderWidth: 3,
-    borderColor: '#8B5A2B',
+    borderWidth: 1,
+    borderColor: '#B08A55',
+    overflow: 'visible',
+  },
+  railLabel: {
+    fontSize: 10,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    color: 'rgba(74, 52, 36, 0.55)',
+    marginBottom: 8,
+  },
+  railTrack: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    minHeight: TOKEN_SIZE,
+    gap: 10,
   },
-  panEmoji: {
-    fontSize: 34,
-  },
-  floatLabel: {
-    position: 'absolute',
-    bottom: PAN_BOTTOM_OFFSET + PAN_HEIGHT + 8,
-    width: 140,
-    textAlign: 'center',
-    fontSize: 18,
-    fontWeight: '800',
-    color: INK,
-  },
-  flash: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: KITCHEN,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  flashTitle: {
-    fontSize: 40,
-    fontWeight: '800',
-    color: INK,
-    marginBottom: 16,
-  },
-  flashEmojis: {
-    fontSize: 48,
-    letterSpacing: 10,
-  },
-  modalWrap: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(48, 28, 12, 0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modal: {
-    width: '100%',
-    maxWidth: 360,
+  token: {
+    width: TOKEN_SIZE,
+    height: TOKEN_SIZE,
+    borderRadius: 16,
     backgroundColor: CREAM,
-    borderRadius: 20,
-    borderWidth: 3,
-    borderColor: WOOD,
-    paddingVertical: 28,
-    paddingHorizontal: 24,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(74, 52, 36, 0.08)',
   },
-  grade: {
-    fontSize: 56,
-    fontWeight: '900',
+  tokenWaiting: {
+    opacity: 0.55,
+  },
+  tokenGhost: {
+    width: TOKEN_SIZE,
+    height: TOKEN_SIZE,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 52, 36, 0.12)',
+    borderStyle: 'dashed',
+  },
+  tokenEmoji: {
+    fontSize: 30,
+  },
+  recipe: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: WOOD,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipeKicker: {
+    fontSize: 11,
+    letterSpacing: 4,
+    textTransform: 'uppercase',
+    color: INK_SOFT,
+    marginBottom: 28,
+  },
+  recipePlate: {
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    borderWidth: 1.5,
+    borderColor: PLATE_RIM,
+    backgroundColor: 'rgba(255,254,251,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipeSlot: {
+    position: 'absolute',
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 52, 36, 0.18)',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipeEmoji: {
+    fontSize: 28,
+    opacity: 0.45,
+  },
+  recipeHint: {
+    marginTop: 28,
+    fontSize: 15,
+    letterSpacing: 6,
+    textTransform: 'uppercase',
+    color: INK_SOFT,
+  },
+  finish: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(231, 211, 176, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 48,
+    paddingHorizontal: 28,
+  },
+  finishLabel: {
+    fontSize: 34,
+    letterSpacing: 8,
+    textTransform: 'uppercase',
+    fontWeight: '400',
     color: INK,
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  summary: {
-    fontSize: 18,
-    lineHeight: 28,
+  chef: {
+    fontSize: 16,
+    lineHeight: 24,
     color: INK,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  finalScore: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: INK,
-    marginBottom: 20,
+  finishSummary: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: INK_SOFT,
+    textAlign: 'center',
+    marginBottom: 22,
   },
   replay: {
-    backgroundColor: '#8B5A2B',
-    paddingVertical: 12,
-    paddingHorizontal: 36,
+    paddingVertical: 10,
+    paddingHorizontal: 28,
     borderRadius: 999,
+    borderWidth: 1,
+    borderColor: INK,
   },
   replayPressed: {
-    opacity: 0.8,
+    opacity: 0.6,
   },
   replayLabel: {
-    color: '#FFF8EC',
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 14,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    color: INK,
   },
 });

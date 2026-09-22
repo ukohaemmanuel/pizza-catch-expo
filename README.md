@@ -1,8 +1,8 @@
-# Pizza Catch
+# Plating desk
 
-A one-screen Expo playtest: catch pizza ingredients in a pan.
+A one-screen Expo playtest: plate a pizza from the mise rail.
 
-This is **v1 playtest only** — one dish (pizza), emoji art, a single ~30 second round. There is no menu, shop, or extra dishes.
+This is **v1 playtest only** — one dish (pizza), emoji tokens, a single ~30 second round. There is no menu, shop, or extra dishes.
 
 ## How to run
 
@@ -13,41 +13,43 @@ npx expo start
 
 Then:
 
-- Scan the QR code with **Expo Go** on a phone (this project uses Expo SDK 54, which matches current Expo Go), or
+- Scan the QR code with **Expo Go** on a phone (Expo SDK 54), or
 - Press `w` for web, or
 - Press `a` / `i` for Android / iOS simulators.
 
 ## What the playtest is
 
-1. **Opening flash (1.5s):** title “Make a Pizza” plus 🫓 🍅 🧀, then it hides.
-2. **Catch rain:** ingredients fall one at a time. Drag the pan along the bottom to catch them.
-3. **Timer:** 30 seconds. When it hits zero the round freezes and a grade modal appears.
-4. **Replay:** start the same pizza round again.
+A quiet kitchen desk. A white plate sits in the centre. Ingredients arrive on a mise rail. You plate or discard them before the oven glow goes out.
+
+1. **Recipe card (~1.2s):** plate silhouette with empty slots 🫓 🍅 🧀, then it fades.
+2. **Rail:** tokens feed one after another (short queue of up to 3).
+3. **Oven glow:** a dim amber well. When it empties, the round freezes.
+4. **Summary:** plated plate + Clean / Solid / Messy / Ruined + one chef line + Replay.
 
 Must-haves: dough 🫓, sauce 🍅, cheese 🧀  
-Junk: banana 🍌, ice cream 🍦  
-Pan: 🍳
+Junk: banana 🍌, ice cream 🍦
 
 ## Controls
 
-Drag horizontally anywhere on the kitchen board. The pan only moves on the X axis.
+- **Drag a token onto the plate** (or a slot) to accept it.
+- **Flick / swipe it off the rail** to reject it.
+- The plate does not move. There is no catching pan.
 
-## Scoring & grades
+## Scoring
 
 Start at 0.
 
-- Catch a must-have the first time: **+100**
-- Catch that type again: **+50 extra topping**
-- Catch junk: **−150** (contaminated)
-- Time’s up: **−100** for each must-have type you never caught
-- Missing an ingredient on the floor only matters if you still needed that type (the time-up penalty)
+- Correct onto plate: **+100**; extra of a type already on the plate: **+50**
+- Junk onto plate: **−150** and a visible stain
+- Reject junk: clean (no penalty)
+- Reject a still-needed must-have: no immediate penalty; empty slots still cost at time-up
+- Time up: **−100** per empty required slot
 
-| Grade | Rule |
+| Finish | Rule |
 | --- | --- |
-| **S** | All 3 types, 0 junk, score ≥ 300 |
-| **A** | All 3 types, 0 junk |
-| **B** | All 3 types, 1 junk |
-| **C** | 2 of 3 types |
-| **Fail** | Fewer than 2 types, or 2+ junk |
+| **Clean** | All 3 types, 0 junk (old S / A) |
+| **Solid** | All 3 types, at most 1 junk |
+| **Messy** | 2 of 3 types |
+| **Ruined** | Fewer than 2 types, or 2+ junk |
 
-The grade screen lists a plain summary (for example `Dough ✓ Sauce ✓ Cheese ✗ Junk: banana ×1`), the score, the grade, and **Replay**.
+Demo capture: `docs/playtest.mp4`

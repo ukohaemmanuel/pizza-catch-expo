@@ -14,7 +14,10 @@ import {
   type MustHaveId,
 } from './items';
 
+/** Internal letter mapping from the original playtest. */
 export type Grade = 'S' | 'A' | 'B' | 'C' | 'Fail';
+
+export type PlatingLabel = 'Clean' | 'Solid' | 'Messy' | 'Ruined';
 
 export type ScoreState = {
   score: number;
@@ -22,7 +25,7 @@ export type ScoreState = {
   junkCounts: Record<JunkId, number>;
 };
 
-export type CatchResult = {
+export type AcceptResult = {
   state: ScoreState;
   delta: number;
   label: string;
@@ -52,7 +55,12 @@ export function junkTotal(state: ScoreState): number {
   return JUNK_IDS.reduce((sum, id) => sum + state.junkCounts[id], 0);
 }
 
-export function applyCatch(state: ScoreState, itemId: ItemId): CatchResult {
+export function missingMustHaves(state: ScoreState): MustHaveId[] {
+  return MUST_HAVE_IDS.filter((id) => state.mustHaveCounts[id] === 0);
+}
+
+/** Drag onto the plate. Same math as the original catch rules. */
+export function applyAccept(state: ScoreState, itemId: ItemId): AcceptResult {
   const next = cloneState(state);
   const def = ITEMS[itemId];
 
@@ -79,12 +87,20 @@ export function applyCatch(state: ScoreState, itemId: ItemId): CatchResult {
   };
 }
 
+/** @deprecated plating uses applyAccept; kept for the original catch math tests. */
+export const applyCatch = applyAccept;
+
+/** Swiping junk off the rail is clean — no score change. */
+export function applyReject(_state: ScoreState, _itemId: ItemId): ScoreState {
+  return _state;
+}
+
 export function applyTimeUp(state: ScoreState): {
   state: ScoreState;
   missing: MustHaveId[];
   penalty: number;
 } {
-  const missing = MUST_HAVE_IDS.filter((id) => state.mustHaveCounts[id] === 0);
+  const missing = missingMustHaves(state);
   const penalty = missing.length * MISSING_TYPE_PENALTY;
   const next = cloneState(state);
   next.score -= penalty;
@@ -92,7 +108,7 @@ export function applyTimeUp(state: ScoreState): {
 }
 
 /**
- * Grade after time-up penalties are applied.
+ * Letter grade after time-up penalties (original rules).
  * - S: all 3 types, 0 junk, score ≥ 300
  * - A: all 3 types, 0 junk
  * - B: all 3 types, 1 junk
@@ -118,6 +134,24 @@ export function computeGrade(state: ScoreState): Grade {
   return 'B';
 }
 
+/**
+ * Desk labels shown in the UI.
+ * Clean ≈ S/A, Solid ≈ all 3 with at most 1 junk, Messy ≈ 2 types, Ruined ≈ fail.
+ */
+export function computePlatingLabel(state: ScoreState): PlatingLabel {
+  const grade = computeGrade(state);
+  if (grade === 'S' || grade === 'A') {
+    return 'Clean';
+  }
+  if (grade === 'B') {
+    return 'Solid';
+  }
+  if (grade === 'C') {
+    return 'Messy';
+  }
+  return 'Ruined';
+}
+
 export function formatSummary(state: ScoreState): string {
   const mark = (id: MustHaveId) => (state.mustHaveCounts[id] > 0 ? '✓' : '✗');
   const types = MUST_HAVE_IDS.map((id) => `${ITEMS[id].label} ${mark(id)}`).join(' ');
@@ -128,4 +162,21 @@ export function formatSummary(state: ScoreState): string {
   const junkLine = junkBits.length > 0 ? junkBits.join(', ') : 'none';
 
   return `${types}\nJunk: ${junkLine}`;
+}
+
+export function chefLine(state: ScoreState): string {
+  const junk = junkTotal(state);
+  if (junk > 0) {
+    const first = JUNK_IDS.find((id) => state.junkCounts[id] > 0);
+    const name = first ? ITEMS[first].label : 'junk';
+    return `Spoiled — ${name} on a pizza.`;
+  }
+
+  const missing = missingMustHaves(state);
+  if (missing.length === 0) {
+    return 'Clean build.';
+  }
+
+  const names = missing.map((id) => ITEMS[id].label.toLowerCase()).join(', ');
+  return `Clean build. Missing ${names}.`;
 }

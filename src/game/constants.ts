@@ -1,19 +1,17 @@
-export const FLASH_DURATION_MS = 1500;
+export const RECIPE_DURATION_MS = 1200;
 export const ROUND_DURATION_MS = 30_000;
-export const SPAWN_INTERVAL_MS = 700;
-export const SLOW_FALL_MS = 8_000;
+export const RAIL_FEED_MS = 1100;
+export const RAIL_MAX_QUEUE = 3;
 
-export const PAN_WIDTH_RATIO = 0.25;
-export const PAN_HEIGHT = 58;
-export const ITEM_SIZE = 52;
+export const TOKEN_SIZE = 56;
+export const PLATE_SIZE_RATIO = 0.58;
 
-/** Pixels per second while the opening slow-fall window is active. */
-export const SLOW_FALL_SPEED = 150;
-/** Pixels per second after the slow-fall window. */
-export const STEADY_FALL_SPEED = 280;
+/** Fraction of plate radius the token centre must be inside to accept. */
+export const ACCEPT_RADIUS_RATIO = 0.92;
+/** px/ms — a flick off the rail faster than this rejects. */
+export const REJECT_SWIPE_SPEED = 0.72;
 
 export const JUNK_SPAWN_CHANCE = 0.28;
-/** When any must-have type is still missing, prefer one of those. */
 export const PREFER_MISSING_CHANCE = 0.8;
 
 export const FIRST_CATCH_POINTS = 100;

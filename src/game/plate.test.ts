@@ -11,8 +11,8 @@ describe('dropIsOnPlate', () => {
     assert.equal(dropIsOnPlate(200, 370, plate), true);
   });
 
-  it('rejects a token that only clips the rim', () => {
-    assert.equal(dropIsOnPlate(200, 420, plate), false);
+  it('accepts a drop inside the plate box even near the rim', () => {
+    assert.equal(dropIsOnPlate(200, 395, plate), true);
     assert.equal(dropIsOnPlate(40, 40, plate), false);
   });
 });

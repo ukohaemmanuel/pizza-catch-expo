@@ -170,4 +170,8 @@ describe('formatSummary / chefLine', () => {
     state = applyAccept(state, 'cheese').state;
     assert.equal(chefLine(state), 'Clean build.');
   });
+
+  it('does not call an empty plate a clean build', () => {
+    assert.equal(chefLine(createScoreState()), 'Nothing made it to the plate.');
+  });
 });

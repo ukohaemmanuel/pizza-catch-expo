@@ -173,6 +173,9 @@ export function chefLine(state: ScoreState): string {
   }
 
   const missing = missingMustHaves(state);
+  if (missing.length === MUST_HAVE_IDS.length) {
+    return 'Nothing made it to the plate.';
+  }
   if (missing.length === 0) {
     return 'Clean build.';
   }

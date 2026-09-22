@@ -14,7 +14,13 @@ export function pointInCircle(x: number, y: number, circle: Circle, ratio = 1): 
 
 /** Token centre must land mostly on the plate to accept. */
 export function dropIsOnPlate(x: number, y: number, plate: Circle): boolean {
-  return pointInCircle(x, y, plate, ACCEPT_RADIUS_RATIO);
+  if (plate.r <= 0) {
+    return false;
+  }
+  if (pointInCircle(x, y, plate, ACCEPT_RADIUS_RATIO)) {
+    return true;
+  }
+  return Math.abs(x - plate.cx) <= plate.r && Math.abs(y - plate.cy) <= plate.r;
 }
 
 /**

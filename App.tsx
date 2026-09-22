@@ -236,6 +236,14 @@ export default function App() {
     if (phase !== 'plating') {
       return;
     }
+    const id = requestAnimationFrame(() => onPlateLayout());
+    return () => cancelAnimationFrame(id);
+  }, [onPlateLayout, phase]);
+
+  useEffect(() => {
+    if (phase !== 'plating') {
+      return;
+    }
     feedOne();
     const feed = setInterval(feedOne, RAIL_FEED_MS);
     return () => clearInterval(feed);
@@ -287,7 +295,12 @@ export default function App() {
 
         <View style={styles.board}>
           <View style={styles.plateShadow} />
-          <View ref={plateViewRef} style={styles.plate} onLayout={onPlateLayout}>
+          <View
+            ref={plateViewRef}
+            style={styles.plate}
+            onLayout={onPlateLayout}
+            pointerEvents="none"
+          >
             {contaminated ? <View style={styles.stain} /> : null}
             {MUST_HAVE_IDS.map((id) => {
               const filled = scoreState.mustHaveCounts[id] > 0;
@@ -297,13 +310,15 @@ export default function App() {
                   key={id}
                   style={[
                     styles.slot,
+                    filled ? styles.slotFilled : styles.slotEmpty,
                     {
                       transform: [{ translateX: pos.x }, { translateY: pos.y }],
-                      opacity: filled ? 1 : 0.22,
                     },
                   ]}
                 >
-                  <Text style={styles.slotEmoji}>{ITEMS[id].emoji}</Text>
+                  <Text style={[styles.slotEmoji, !filled && styles.slotEmojiEmpty]}>
+                    {ITEMS[id].emoji}
+                  </Text>
                   {scoreState.mustHaveCounts[id] > 1 ? (
                     <Text style={styles.extraMark}>+</Text>
                   ) : null}
@@ -333,8 +348,9 @@ export default function App() {
                     styles.token,
                     drag.active && {
                       transform: [{ translateX: drag.x }, { translateY: drag.y }],
-                      zIndex: 4,
-                      elevation: 4,
+                      zIndex: 8,
+                      elevation: 8,
+                      opacity: 0.96,
                     },
                   ]}
                   {...panResponder.panHandlers}
@@ -473,13 +489,23 @@ const styles = StyleSheet.create({
   },
   slot: {
     position: 'absolute',
-    width: 52,
-    height: 52,
+    width: 54,
+    height: 54,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  slotEmpty: {
+    borderRadius: 27,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 52, 36, 0.16)',
+    borderStyle: 'dashed',
+  },
+  slotFilled: {},
   slotEmoji: {
     fontSize: 32,
+  },
+  slotEmojiEmpty: {
+    opacity: 0.28,
   },
   extraMark: {
     position: 'absolute',
@@ -516,6 +542,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: TOKEN_SIZE,
     gap: 10,
+    overflow: 'visible',
   },
   token: {
     width: TOKEN_SIZE,
@@ -564,20 +591,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  recipeSlot: {
+    recipeSlot: {
     position: 'absolute',
     width: 58,
     height: 58,
     borderRadius: 29,
-    borderWidth: 1,
-    borderColor: 'rgba(74, 52, 36, 0.18)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(74, 52, 36, 0.28)',
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,254,251,0.35)',
   },
   recipeEmoji: {
     fontSize: 28,
-    opacity: 0.45,
+    opacity: 0.7,
   },
   recipeHint: {
     marginTop: 28,
